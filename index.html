@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Text Summarizer</title>
+    <style>
+        /* Colours live in variables, so dark mode only has to change these */
+        :root {
+            --bg: #FFF7ED; --card: #FFFFFF; --text: #2B2118; --muted: #7A6A5C;
+            --line: #EBD9C4; --accent: #FB923C; --accent-dark: #F97316;
+            --result-bg: #FFEDD5; --error-bg: #FEE2E2; --error-text: #991B1B;
+        }
+        body.dark {
+            --bg: #1A1410; --card: #241C16; --text: #F6EBDD; --muted: #B5A391;
+            --line: #3E3025; --accent: #FB923C; --accent-dark: #FDBA74;
+            --result-bg: #33261B; --error-bg: #4A1D1D; --error-text: #FCA5A5;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: "Segoe UI", system-ui, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            transition: background 0.3s, color 0.3s;
+        }
+
+        .container {
+            max-width: 680px;
+            margin: 40px auto;
+            padding: 28px;
+            background: var(--card);
+            border-radius: 16px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+            animation: rise 0.6s ease both;
+        }
+        @keyframes rise { from { opacity: 0; transform: translateY(20px); } }
+
+        .top { display: flex; justify-content: space-between; align-items: flex-start; }
+        h1 { color: var(--accent); margin: 0; font-size: 2.2rem; }
+        .tagline { margin: 4px 0 24px; color: var(--muted); }
+
+        #theme-toggle {
+            background: var(--bg); color: var(--text); border: 1px solid var(--line);
+            border-radius: 999px; padding: 6px 12px; font-size: 14px;
+        }
+
+        form { display: flex; flex-direction: column; gap: 12px; }
+
+        textarea {
+            height: 170px;
+            padding: 12px;
+            border: 2px solid var(--line);
+            border-radius: 10px;
+            font-size: 16px;
+            font-family: inherit;
+            background: var(--bg);
+            color: var(--text);
+            resize: vertical;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 4px rgba(251, 146, 60, 0.25);
+        }
+
+        .meta { display: flex; justify-content: space-between; font-size: 14px; color: var(--muted); }
+        .meta button { background: none; border: none; color: var(--accent-dark); padding: 0; margin-left: 12px; font-size: 14px; }
+        .meta button:hover { text-decoration: underline; background: none; }
+
+        button {
+            font-family: inherit;
+            cursor: pointer;
+            transition: transform 0.1s, background 0.2s;
+        }
+        button:active { transform: scale(0.97); }
+
+        #summarize-btn {
+            background-color: var(--accent);
+            color: #fff;
+            border: none;
+            padding: 12px 15px;
+            font-size: 17px;
+            font-weight: 600;
+            border-radius: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+        }
+        #summarize-btn:hover:not(:disabled) { background-color: var(--accent-dark); }
+        #summarize-btn:disabled { opacity: 0.7; cursor: wait; }
+
+        .spinner {
+            width: 16px; height: 16px; border-radius: 50%;
+            border: 2px solid #fff; border-right-color: transparent;
+            animation: spin 0.7s linear infinite; display: none;
+        }
+        #summarize-btn.loading .spinner { display: block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        #summary-output {
+            margin-top: 22px;
+            background: var(--result-bg);
+            padding: 16px;
+            border-radius: 10px;
+            animation: rise 0.4s ease both;
+        }
+        #summary-output.error { background: var(--error-bg); color: var(--error-text); }
+
+        .summary-head { display: flex; justify-content: space-between; align-items: center; }
+        #summary-heading { margin: 0; font-size: 1.1rem; }
+        #copy-btn {
+            background: transparent; color: var(--text); border: 1px solid var(--line);
+            border-radius: 8px; padding: 4px 10px; font-size: 14px;
+        }
+        #copy-btn:hover { border-color: var(--accent); }
+
+        #summary-text { line-height: 1.7; margin: 10px 0 0; min-height: 24px; }
+
+        /* Cursor that blinks while the summary is being typed out */
+        #summary-text.typing::after { content: "|"; margin-left: 2px; animation: blink 0.8s steps(1) infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+
+        .stats { margin-top: 14px; font-size: 14px; color: var(--muted); }
+        .bar { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; margin-top: 6px; }
+        .bar div { height: 100%; width: 0; background: var(--accent); transition: width 0.8s ease; }
+
+        .history { margin-top: 24px; }
+        .history h3 { font-size: 1rem; margin: 0 0 8px; }
+        .history-item {
+            display: block; width: 100%; text-align: left; margin-bottom: 8px;
+            background: var(--bg); color: var(--text); border: 1px solid var(--line);
+            border-radius: 8px; padding: 8px 12px; font-size: 14px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .history-item:hover { border-color: var(--accent); }
+
+        [hidden] { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="top">
+            <h1>Text Summarizer</h1>
+            <button id="theme-toggle" type="button">Dark mode</button>
+        </div>
+        <p class="tagline">using HuggingFace Transformer. Paste your content below for a quick summary.</p>
+
+        <form id="summarization-form">
+            <textarea id="dialogue-input" placeholder="Enter your content here..." required></textarea>
+
+            <div class="meta">
+                <span id="word-count">0 words</span>
+                <span>
+                    <button type="button" id="example-btn">Try an example</button>
+                    <button type="button" id="clear-btn">Clear</button>
+                </span>
+            </div>
+
+            <button type="submit" id="summarize-btn">
+                <span class="spinner"></span>
+                <span id="btn-label">Summarize</span>
+            </button>
+        </form>
+
+        <div id="summary-output" hidden>
+            <div class="summary-head">
+                <h3 id="summary-heading">Content Summary</h3>
+                <button type="button" id="copy-btn">Copy</button>
+            </div>
+            <p id="summary-text"></p>
+            <div class="stats" id="stats" hidden>
+                <span id="stats-text"></span>
+                <div class="bar"><div id="bar-fill"></div></div>
+            </div>
+        </div>
+
+        <div class="history" id="history" hidden>
+            <h3>Recent summaries (click to reuse)</h3>
+            <div id="history-list"></div>
+        </div>
+    </div>
+
+    <script>
+        // ---------- Grab the elements we need ----------
+        const form = document.getElementById("summarization-form");
+        const input = document.getElementById("dialogue-input");
+        const button = document.getElementById("summarize-btn");
+        const btnLabel = document.getElementById("btn-label");
+        const output = document.getElementById("summary-output");
+        const summaryText = document.getElementById("summary-text");
+        const copyBtn = document.getElementById("copy-btn");
+        const stats = document.getElementById("stats");
+
+        const EXAMPLE = "Priya: Did you see the numbers from the launch? Sam: Yes, signups tripled in the first week, but support tickets also jumped by about 40 percent. Priya: That is what worries me. Most of the tickets are about the same two problems, password resets and the export button. Sam: I can have engineering fix the export bug by Thursday. The password flow needs a redesign, which will take around three weeks. Priya: Then let us hire two temporary support agents until it ships, and I will brief the team tomorrow. Sam: Agreed. I will send the budget request to finance this afternoon.";
+
+        const countWords = (text) => (text.trim().match(/\S+/g) || []).length;
+        let typingTimer = null;
+
+        // ---------- Live word counter ----------
+        input.addEventListener("input", () => {
+            const n = countWords(input.value);
+            document.getElementById("word-count").textContent = n + (n === 1 ? " word" : " words");
+        });
+
+        // ---------- Example and Clear buttons ----------
+        document.getElementById("example-btn").addEventListener("click", () => {
+            input.value = EXAMPLE;
+            input.dispatchEvent(new Event("input"));
+            input.focus();
+        });
+        document.getElementById("clear-btn").addEventListener("click", () => {
+            input.value = "";
+            input.dispatchEvent(new Event("input"));
+            output.hidden = true;
+            input.focus();
+        });
+
+        // ---------- Ctrl + Enter submits the form ----------
+        input.addEventListener("keydown", (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") form.requestSubmit();
+        });
+
+        // ---------- Typewriter effect: reveals the summary a few letters at a time ----------
+        function typeOut(text) {
+            clearInterval(typingTimer);
+            summaryText.textContent = "";
+            summaryText.classList.add("typing");
+            let i = 0;
+            typingTimer = setInterval(() => {
+                i += 2;
+                summaryText.textContent = text.slice(0, i);
+                if (i >= text.length) {
+                    clearInterval(typingTimer);
+                    summaryText.classList.remove("typing");
+                }
+            }, 18);
+        }
+
+        // ---------- Show how much shorter the summary is ----------
+        function showStats(original, summary) {
+            const before = countWords(original);
+            const after = countWords(summary);
+            const percent = before ? Math.max(0, Math.round((1 - after / before) * 100)) : 0;
+            document.getElementById("stats-text").textContent =
+                before + " words became " + after + " words (" + percent + "% shorter)";
+            stats.hidden = false;
+            document.getElementById("bar-fill").style.width = "0";
+            setTimeout(() => { document.getElementById("bar-fill").style.width = percent + "%"; }, 50);
+        }
+
+        // ---------- Main: send text to the backend (same as the original code) ----------
+        form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+
+            const dialogue = input.value.trim();
+            if (!dialogue) return;
+
+            output.hidden = false;
+            output.classList.remove("error");
+            stats.hidden = true;
+            copyBtn.hidden = true;
+            clearInterval(typingTimer);
+            summaryText.classList.remove("typing");
+            summaryText.textContent = "Reading your text…";
+            button.disabled = true;
+            button.classList.add("loading");
+            btnLabel.textContent = "Summarizing…";
+
+            try {
+                const response = await fetch("/summarize/", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ dialogue }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
+                }
+
+                const data = await response.json();
+                const summary = data.summary || "No summary returned.";
+
+                typeOut(summary);
+                showStats(dialogue, summary);
+                copyBtn.hidden = false;
+                saveHistory(dialogue, summary);
+            } catch (err) {
+                output.classList.add("error");
+                summaryText.textContent = `Error: ${err.message}. Is your server running?`;
+            } finally {
+                button.disabled = false;
+                button.classList.remove("loading");
+                btnLabel.textContent = "Summarize";
+            }
+        });
+
+        // ---------- Copy button ----------
+        copyBtn.addEventListener("click", async () => {
+            try {
+                await navigator.clipboard.writeText(summaryText.textContent);
+                copyBtn.textContent = "Copied";
+            } catch (err) {
+                copyBtn.textContent = "Press Ctrl+C";
+            }
+            setTimeout(() => { copyBtn.textContent = "Copy"; }, 1500);
+        });
+
+        // ---------- History: last 5 summaries, kept in the browser ----------
+        const getHistory = () => {
+            try { return JSON.parse(localStorage.getItem("summaries") || "[]"); }
+            catch (err) { return []; }
+        };
+
+        function saveHistory(text, summary) {
+            const list = getHistory().filter((item) => item.text !== text);
+            list.unshift({ text, summary });
+            try { localStorage.setItem("summaries", JSON.stringify(list.slice(0, 5))); } catch (err) {}
+            renderHistory();
+        }
+
+        function renderHistory() {
+            const list = getHistory();
+            const box = document.getElementById("history-list");
+            document.getElementById("history").hidden = list.length === 0;
+            box.innerHTML = "";
+            list.forEach((item) => {
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "history-item";
+                btn.textContent = item.summary;          // textContent keeps it safe from HTML injection
+                btn.addEventListener("click", () => {
+                    input.value = item.text;
+                    input.dispatchEvent(new Event("input"));
+                    output.hidden = false;
+                    output.classList.remove("error");
+                    summaryText.textContent = item.summary;
+                    showStats(item.text, item.summary);
+                    copyBtn.hidden = false;
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                });
+                box.appendChild(btn);
+            });
+        }
+
+        // ---------- Dark mode toggle ----------
+        const themeBtn = document.getElementById("theme-toggle");
+        themeBtn.addEventListener("click", () => {
+            const dark = document.body.classList.toggle("dark");
+            themeBtn.textContent = dark ? "Light mode" : "Dark mode";
+        });
+
+        renderHistory();
+    </script>
+</body>
+</html>
